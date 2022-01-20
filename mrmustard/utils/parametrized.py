@@ -13,7 +13,7 @@
 # limitations under the License.
 
 
-from functools import reduce
+from collections import defaultdict, ChainMap
 from mrmustard.utils import training
 from mrmustard.types import *
 from mrmustard.math import Math
@@ -29,52 +29,48 @@ class Parametrized:
     be optimized ``xxx_trainable`` (bool), along with any other parameters.
     """
 
-    def __init__(self, **kwargs):  # NOTE: only kwargs so that we can use the arg names
-        self._trainable_parameters = []
-        self._constant_parameters = []
-        self._param_names = []
-        owner = f"{self.__class__.__qualname__}"
+    def __init__(self, **kwargs):  # NOTE: only kwargs allowed so that we get the arg names
+        self.children: List[Parametrized] = []
+        self.parent: Optional[Parametrized] = None
+        self._trainable_parameters = {}
+        self._constant_parameters = {}
+        self._all_parameters = ChainMap(self._trainable_parameters, self._constant_parameters)
+        owner = f"{self.__class__.__qualname__}"   # NOTE: many classes inherit from Parametrized
         for name, value in kwargs.items():
             if math.from_backend(value):
                 if math.is_trainable(value):
-                    self._trainable_parameters.append(value)
+                    self._trainable_parameters[name] = value
                 elif name + "_trainable" in kwargs and kwargs[name + "_trainable"]:
                     value = math.new_variable(value, kwargs[name + "_bounds"], owner + ":" + name)
-                    self._trainable_parameters.append(value)
+                    self._trainable_parameters[name] = value
                 else:
-                    self._constant_parameters.append(value)
+                    self._constant_parameters[name] = value
             elif name + "_trainable" in kwargs and kwargs[name + "_trainable"]:
                 value = math.new_variable(value, kwargs[name + "_bounds"], owner + ":" + name)
-                self._trainable_parameters.append(value)
+                self._trainable_parameters[name] = value
             elif name + "_trainable" in kwargs and not kwargs[name + "_trainable"]:
                 value = math.new_constant(value, owner + ":" + name)
-                self._constant_parameters.append(value)
+                self._constant_parameters[name] = value
             else:
                 name = "_" + name
             self.__dict__[name] = value
             self._param_names += [] if name.startswith("_") else [name]
 
     @property
-    def trainable_parameters(self) -> Dict[str, List[Trainable]]:
+    def trainable_parameters(self) -> Dict[str, List[Trainable]]:  # override in subclasses
         r"""Returns the dictionary of trainable parameters, searching recursively in the object tree (for example, when in a Circuit)."""
         if hasattr(self, "_ops"):
             return {
-                "symplectic": math.unique_tensors(
-                    [p for item in self._ops for p in item.trainable_parameters["symplectic"]]
-                ),
-                "orthogonal": math.unique_tensors(
-                    [p for item in self._ops for p in item.trainable_parameters["orthogonal"]]
-                ),
-                "euclidean": math.unique_tensors(
-                    [p for item in self._ops for p in item.trainable_parameters["euclidean"]]
-                ),
+                "symplectic": [op.trainable_parameters["symplectic"] for op in self.children],
+                "orthogonal": ChainMap(op.trainable_parameters["orthogonal"] for op in self._ops),
+                "euclidean": ChainMap(op.trainable_parameters["euclidean"] for op in self._ops),
             }
         else:
             return {
-                "symplectic": [],
-                "orthogonal": [],
+                "symplectic": dict(),
+                "orthogonal": dict(),
                 "euclidean": self._trainable_parameters,
-            }  # default
+            }
 
     @property
     def constant_parameters(self) -> Dict[str, List[Tensor]]:
