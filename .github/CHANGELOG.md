@@ -2,12 +2,15 @@
 
 ### New features since last release
 
+* Fidelity can be calculated between two mixed states. [(#115)](https://github.com/XanaduAI/MrMustard/pull/115)
 ### Improvements since last release
 
 ### Bug fixes
 
+* Setting the modes on which detectors and state acts using `modes` kwarg or __getitem__ give consistent results. [(#114)](https://github.com/XanaduAI/MrMustard/pull/114)
 ### Documentation
 
+* [Basic API reference](https://mrmustard.readthedocs.io/en/latest/introduction/basic_reference.html) is updated to use the latest Mr Mustard API. [(#119)](https://github.com/XanaduAI/MrMustard/pull/119)
 ### Contributors
 
 This release contains contributions from (in alphabetical order):

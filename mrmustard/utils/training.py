@@ -12,15 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import numpy as np
-from scipy.linalg import expm
-from mrmustard.types import *
+"""This module contains the implementation of optimization classes and functions
+used within Mr Mustard.
+"""
+
+from mrmustard.types import List, Callable, Sequence, Trainable, Tensor
 from mrmustard.utils import graphics
+from mrmustard.logger import create_logger
 from mrmustard.math import Math
 
 math = Math()
 
-
+# pylint: disable=disallowed-name
 class Optimizer:
     r"""An optimizer for any parametrized object: it can optimize euclidean, orthogonal and symplectic parameters.
 
@@ -38,6 +41,7 @@ class Optimizer:
         self.orthogonal_lr: float = orthogonal_lr
         self.euclidean_lr: float = euclidean_lr
         self.opt_history: List[float] = [0]
+        self.log = create_logger(__name__)
 
     def minimize(
         self, cost_fn: Callable, by_optimizing: Sequence[Trainable], max_steps: int = 1000
@@ -74,7 +78,8 @@ class Optimizer:
                     self.opt_history.append(cost)
                     bar.step(math.asnumpy(cost))
         except KeyboardInterrupt:  # graceful exit
-            return
+            self.log.info("Optimizer execution halted due to keyboard interruption.")
+            raise self.OptimizerInterruptedError() from None
 
     def should_stop(self, max_steps: int) -> bool:
         r"""Returns ``True`` if the optimization should stop (either because the loss is stable or because the maximum number of steps is reached)."""
@@ -85,9 +90,15 @@ class Optimizer:
                 sum(abs(self.opt_history[-i - 1] - self.opt_history[-i]) for i in range(1, 20))
                 < 1e-6
             ):
-                print("Loss looks stable, stopping here.")
+                self.log.info("Loss looks stable, stopping here.")
                 return True
         return False
+
+    class OptimizerInterruptedError(Exception):
+        """A helper class to quietly stop execution without printing a traceback."""
+
+        def _render_traceback_(self):
+            pass
 
 
 # ~~~~~~~~~~~~~~~~~
@@ -140,6 +151,7 @@ def new_symplectic(num_modes: int) -> Tensor:
 
 
 def new_orthogonal(num_modes: int) -> Tensor:
+    """Returns a random orthogonal matrix in :math:`O(2*num_modes)`."""
     return math.random_orthogonal(num_modes)
 
 
@@ -186,5 +198,6 @@ def update_orthogonal(
 def update_euclidean(
     euclidean_params: Sequence[Trainable], euclidean_grads: Sequence[Tensor], euclidean_lr: float
 ):
+    """Updates the parameters using the euclidian gradients."""
     math.euclidean_opt.lr = euclidean_lr
     math.euclidean_opt.apply_gradients(zip(euclidean_grads, euclidean_params))
