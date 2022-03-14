@@ -27,34 +27,36 @@ math = Math()
 class XPTensor(ABC):
     r"""A representation of Matrices and Vectors in phase space.
 
-    Tensors in phase space have a ``(2n, 2n)`` or ``(2n,)`` shape where n is the number of modes.
+    Tensors in phase space have shape ``(2n, 2n)`` (e.g. X and Y matrices) or shape ``(2n,)`` (e.g. d vector)
+    where n is the number of modes.
 
-    There are two main orderings:
-        - xxpp: matrix is a `2\times 2` block matrix where each block is an `xx`, `xp`, `px`, `pp` block on all modes.
-        - xpxp: matrix is a `n\times n` block matrix of `2\times 2` blocks each corresponding to a mode or a coherence between modes
-    This creates some difficulties when we need to work in a mode-wise fashion, especially with coherences.
-    We solve this problem by reshaping the matrices to `(n,m,2,2)` and vectors to `(n,2)`.
+    There are two main orderings or rows and columns:
+        - xxpp: matrix is a `2\times 2` block matrix in which each block is `n\times n` (the four blocks correspond to `xx`, `xp`, `px`, `pp`).
+        - xpxp: matrix is an `n\times n` block matrix in which each block is `2\times 2` and corresponding to a sigle mode or a single coherence between modes.
+    This creates some difficulties when we need to work in a mode-wise fashion, especially with off-diagonal coherences, or rearrange modes.
+    We solve this problem by reshaping the matrices to `(n,m,2,2)` and vectors to `(n,2)`. This creates a unified ordering. The idea is for 
+    a user to forget about the (2,2) extra dimensions and just work with the `n` modes when multiplying, adding, getting submatrices, etc.
 
-    We call `n` the outmodes and `m` the inmodes.
+    We call `n` the outmodes and `m` the inmodes. States have outmodes equal to the inmodes. For transformations they can differ.
     Off-diagonal matrices like coherences have all the outmodes different than the inmodes.
     Diagonal matrices like coviariances and symplectic transformations have the same outmodes as the inmodes.
     Vectors have only outmodes.
 
-    XPTensor objects are sparse, in the sense that they support implicit operations between modes where one or more tensors are undefined.
+    XPTensor objects are operationally sparse, in the sense that they support operations between modes where one or more tensors are undefined.
     There are two types of behaviour:
         * like_0 (default): in modes where the tensor is undefined, it's like having a zero (a zero matrix)
         * like_1: in modes where the tensor is undefined, it's like having a one (an identity matrix)
 
     For example, in the expression :math:`X @ means + d` where `X` is a symplectic matrix and `d` is a displacement vector,
-    if `X` is undefined it's like having the identity and the matrix product simply returns means, while in the expression
-    `means + d` if `d` is undefined it simply returns `means`. In this example no operation was actually computed.
-    Thanks to sparsity we can represent graph states and transformations on graph states as XPTensor objects.
+    if `X` is undefined it's like having the identity and the matrix product simply returns `means`, while in the expression
+    :math:`means + d` if `d` is undefined it simply returns `means`. In this cases no operation would actually be computed.
+    Thanks to sparsity we can represent graph states and transformations on graph states using XPTensor objects.
 
     Args:
         tensor: The tensor in (n,m,2,2) or (n,2) order.
-        modes: a list of modes for a diagonal matrix or a vector and a tuple of two lists for a coherence (not optional for a coherence)
-        like_0: Whether the null tensor behaves like 0 under addition (e.g. the noise matrix Y)
-        like_1: Whether the null tensor behaves like 1 under multiplication (e.g. a symplectic transformation matrix)
+        like_0: Whether the undefined tensor behaves like 0 under addition (e.g. the noise matrix Y) (if False, like_1 is assumed)
+        isVector: Whether the tensor is a vector (True) or a matrix (False)
+        modes: a list of modes for a diagonal matrix or a vector; a tuple of two lists for a coherence (not optional for a coherence)
     """
 
     @abstractmethod  # so that XPTensor can't be instantiated directly
@@ -69,7 +71,7 @@ class XPTensor(ABC):
         self.like_0 = like_0
         self.shape = (
             None if tensor is None else tensor.shape[: len(tensor.shape) // 2]
-        )  # only (N,M) or (N,)
+        )  # NOTE: only (N,M) or (N,)
         self.ndim = None if tensor is None else len(self.shape)
         self.isVector = isVector
         if self.ndim == 1 and not self.isVector:
@@ -107,7 +109,7 @@ class XPTensor(ABC):
         return len(self.outmodes)
 
     @property
-    def isMatrix(self) -> Optional[bool]:
+    def isMatrix(self) -> Optional[bool]: # TODO: move to XPMatrix
         return not self.isVector
 
     @property
@@ -145,7 +147,7 @@ class XPTensor(ABC):
         tensor = math.transpose(
             self.tensor, (2, 0, 3, 1) if self.isMatrix else (1, 0)
         )  # from NN22 to 2N2N or from N2 to 2N
-        return math.reshape(tensor, [2 * s for s in self.shape])
+        return math.reshape(tensor, [2 * s for s in self.shape]) 
 
     def __array__(self):
         return self.to_xxpp()
@@ -159,7 +161,7 @@ class XPTensor(ABC):
         return math.transpose(self.tensor, (2, 3, 0, 1) if self.isMatrix else (0, 1))  # 22NM or 2N
 
     def clone(self, times: int, modes=None) -> XPtensor:
-        r"""Create a new XPTensor made by cloning the system a given number of times
+        r"""Create a new XPTensor by cloning the system a given number of times
         (the modes are reset by default unless specified).
         """
         if self.tensor is None:
@@ -229,41 +231,8 @@ class XPTensor(ABC):
     def __mul__(self, other: Scalar) -> Optional[XPTensor]:
         return other * self
 
-    def __matmul__(self, other: Union[XPMatrix, XPVector]) -> Union[XPMatrix, XPVector, Scalar]:
-        if not isinstance(other, (XPMatrix, XPVector)):
-            raise TypeError(
-                f"Unsupported operand type(s) for @: '{self.__class__.__qualname__}' and '{other.__class__.__qualname__}'"
-            )
-        # TODO: move mode-check at beginning?
-
-        # both are None
-        if self.tensor is None and other.tensor is None:
-            if self.isMatrix and other.isMatrix:
-                return XPMatrix(None, like_1=self.like_1 and other.like_1)
-            if self.isVector or other.isVector:
-                return XPVector(None)
-        # either is None
-        if self.tensor is None:
-            return self if self.like_0 else other
-        if other.tensor is None:
-            return other if other.like_0 else self
-        # Now neither self nor other is None
-        if self.isMatrix and other.isMatrix:
-            tensor, modes = self._mode_aware_matmul(other)
-            return XPMatrix(tensor, like_1=self.like_1 and other.like_1, modes=modes)
-        if self.isMatrix and other.isVector:
-            tensor, modes = self._mode_aware_matmul(other)
-            return XPVector(
-                tensor, modes[0]
-            )  # TODO: check if we can output modes as a list in _mode_aware_matmul
-        if self.isVector and other.isMatrix:
-            tensor, modes = other.T._mode_aware_matmul(self)
-            return XPVector(tensor, modes[0])
-        # self.isVector and other.isVector:
-        return self._mode_aware_vecvec(other)  # NOTE: this is a scalar, not an XPTensor
-
     # pylint: disable=too-many-statements
-    def _mode_aware_matmul(
+    def _sparse_matmul(
         self, other: Union[XPMatrix, XPVector]
     ) -> Tuple[Tensor, Tuple[List[int], List[int]]]:
         r"""Performs matrix multiplication only on the necessary modes and
@@ -350,7 +319,7 @@ class XPTensor(ABC):
                 final = math.gather(final, [inmodes.index(i) for i in sorted(inmodes)], axis=1)
         return final, (sorted(outmodes), sorted(inmodes))
 
-    def _mode_aware_vecvec(self, other: XPVector) -> Scalar:
+    def _sparse_vecvec(self, other: XPVector) -> Scalar:
         if list(self.outmodes) == list(other.outmodes):
             return math.sum(self.tensor * other.tensor)
         common = list(
@@ -569,6 +538,31 @@ class XPMatrix(XPTensor):
     def __repr__(self) -> str:
         return f"XPMatrix(like_0={self.like_0}, modes={self.modes}, tensor_xpxp=\n{self.to_xpxp()})"
 
+    def __matmul__(self, other: Union[XPMatrix, XPVector]) -> Union[XPMatrix, XPVector]:
+        if not isinstance(other, (XPMatrix, XPVector)):
+            raise TypeError(f"Unsupported operand type(s) for @: 'XPMatrix' and '{other.__class__.__qualname__}'")
+        if other.tensor is None:
+            return self if other.like_1 else other
+        if self.tensor is None: # NOTE: other is not None now
+            return other if self.like_1 else self
+        if other.isMatrix:
+            tensor, modes = self._sparse_matmul(other)
+            return XPMatrix(tensor, like_1=self.like_1 and other.like_1, modes=modes)
+        if other.isVector:
+            tensor, modes = self._sparse_matvec(other)
+            return XPVector(tensor, modes=modes)
+
+    def __add__(self, other: XPMatrix) -> XPMatrix:
+        if not isinstance(other, XPMatrix):
+            raise TypeError(f"Unsupported operand type(s) for +: 'XPMatrix' and '{other.__class__.__qualname__}'. Only an XPMatrix can be added to an XPMatrix.")
+        if other.tensor is None and other.like_0:
+            return self
+        if self.tensor is None and self.like_0:
+            return other
+        if self.tensor is not None and other.tensor is not None:
+            return self._sparse_add(other)
+        raise ValueError(f"Can't add a like_1 null XPMatrix and an XPMatrix that is not null and like_0.")
+
 
 class XPVector(XPTensor):
     r"""A convenience class for a vector in the XPTensor format."""
@@ -607,3 +601,22 @@ class XPVector(XPTensor):
 
     def __repr__(self) -> str:
         return f"XPVector(modes={self.outmodes}, tensor_xpxp=\n{self.to_xpxp()})"
+
+    def __matmul__(self, other: Union[XPMatrix, XPVector]) -> Union[XPMatrix, Scalar]:
+        if not isinstance(other, (XPMatrix, XPVector)):
+            raise TypeError(f"Unsupported operand type(s) for @: 'XPVector' and '{other.__class__.__qualname__}'. Only XPMatrix and XPVector are supported.")
+        if other.isMatrix:
+            return other.T @ self
+        if self.tensor is not None and other.tensor is not None:
+            return self._sparse_vecvec(other)
+        return 0.0
+
+    def __add__(self, other: XPVector) -> XPVector:
+        if not isinstance(other, XPVector):
+            raise TypeError(f"Unsupported operand type(s) for +: 'XPVector' and '{other.__class__.__qualname__}'. Only an XPVector can be added to an XPVector.")
+        if other.tensor is None:
+            return self
+        if self.tensor is None:
+            return other
+        if self.tensor is not None and other.tensor is not None:
+            return self._sparse_add(other) 
