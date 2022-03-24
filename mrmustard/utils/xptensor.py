@@ -552,6 +552,18 @@ class XPMatrix(XPTensor):
             tensor, modes = self._sparse_matvec(other)
             return XPVector(tensor, modes=modes)
 
+    def _sparse_matvec(self, other: XPVector) -> Tuple[Tensor, List[int]]:
+        r"""Performs a sparse matrix-vector multiplication.
+        Arguments:
+            other: the vector to multiply with
+        Returns:
+            The resulting vector and the modes of the resulting vector
+        """
+        new_vec = math.sparse_matvec(self.to_xxpp(), other.to_xxpp(), self.outmodes, self.inmodes, other.outmodes, self.like_0)
+        return new_vec, other.outmodes
+
+
+
     def __add__(self, other: XPMatrix) -> XPMatrix:
         if not isinstance(other, XPMatrix):
             raise TypeError(f"Unsupported operand type(s) for +: 'XPMatrix' and '{other.__class__.__qualname__}'. Only an XPMatrix can be added to an XPMatrix.")

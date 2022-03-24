@@ -294,7 +294,7 @@ class TFMath(MathInterface):
     # Special functions
     # ~~~~~~~~~~~~~~~~~
 
-    # TODO: is a wrapper class better?
+    # TODO: isn't a class better?
     @staticmethod
     def DefaultEuclideanOptimizer() -> tf.keras.optimizers.Optimizer:
         r"""Default optimizer for the Euclidean parameters."""
@@ -339,7 +339,7 @@ class TFMath(MathInterface):
             hermite_multidimensional, [A, shape, B, C, True, True, True], A.dtype
         )
 
-        def grad(dLdpoly):
+        def grad(dLdpoly): # NOTE: dLdpoly is the derivative of L with respect to poly *conjugate*
             dpoly_dC, dpoly_dA, dpoly_dB = tf.numpy_function(
                 grad_hermite_multidimensional, [poly, A, B, C], [poly.dtype] * 3
             )
@@ -347,9 +347,39 @@ class TFMath(MathInterface):
             dLdA = self.sum(dLdpoly[..., None, None] * self.conj(dpoly_dA), axes=ax)
             dLdB = self.sum(dLdpoly[..., None] * self.conj(dpoly_dB), axes=ax)
             dLdC = self.sum(dLdpoly * self.conj(dpoly_dC), axes=ax)
-            return dLdA, dLdB, dLdC
+            return dLdA, dLdB, dLdC  # NOTE: dLdA, dLdB, dLdC are the derivatives of L with respect to A, B, C *conjugate*
 
         return poly, grad
+
+    @tf.custom_gradient
+    def sparse_matvec(self, matrix: Tensor, vector: Tensor, m_modes: List[int], v_modes: List[int], like_0:bool) -> Tensor:
+        r"""Computes the "sparse" matrix-vector product of a matrix with a vector only in the specified modes.
+        Note that a phase space vector is "like 0", meaning that entries that are not included
+        in the vector are assumed to be 0s. If the matrix is like_0 and it processes
+        fewer modes than the ones contained in the vector, the output vector will contain 
+        fewer modes than the input. If the matrix is not like_0, then all of the input modes
+        are preserved (thye are either processed by the matrix or they are copied to the output).
+
+        Args:
+            matrix (array): :math:`2M\times 2M` array
+            vector (array): :math:`2N` vector
+            m_modes (list(int)): list of ``M`` modes of the matrix
+            v_outmodes (list(int)): list of ``N`` modes of the vector
+            like_0 (bool): whether matrix is like_0 or not
+        Returns:
+            array: :math:`2N` new vector
+        """
+
+        new_vec = tf.numpy_function(self.numba_sparse_matvec, [matrix, vector, m_modes, v_modes, like_0], vector.dtype)
+
+        def grad(dLdnew_vec): # NOTE: dLdnew_vec is the derivative of L with respect to new_vec *conjugate*
+            dnew_vec_dmatrix, dnew_vec_dvector = tf.numpy_function(self.numba_sparse_matvec_grad, [matrix, vector, m_modes, v_modes, like_0], [new_vec.dtype] * 2)
+            ax = tuple(range(dLdnew_vec.ndim))
+            dLdmatrix = self.sum(dLdnew_vec[..., None, None] * self.conj(dnew_vec_dmatrix), axes=ax)
+            dLdvector = self.sum(dLdnew_vec * self.conj(dnew_vec_dvector), axes=ax)
+            return dmatrix, dvector  # NOTE: dLdmatrix, dLdvector are derivatives with respect to matrix and vector *conjugate*
+
+        return new_vec, grad
 
     @staticmethod
     def eigvals(tensor: tf.Tensor) -> Tensor:

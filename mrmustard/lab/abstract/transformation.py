@@ -324,7 +324,7 @@ class Transformation:
         raise ValueError(f"{other} is not a valid state or transformation.")
 
     # pylint: disable=too-many-branches,too-many-return-statements
-    def __eq__(self, other):
+    def __eq__(self, other): # TODO: refactor!
         r"""Returns ``True`` if the two transformations are equal."""
         if not isinstance(other, Transformation):
             return False

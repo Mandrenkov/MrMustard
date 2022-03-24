@@ -39,6 +39,15 @@ class Settings:
             raise ValueError("Backend must be either 'tensorflow' or 'torch'")
         self._backend = backend_name
 
+    def __repr__(self):
+        # print all settings
+        print("Settings:")
+        for attr in dir(self):
+            if attr.startswith("_"):
+                continue
+            print(f"{attr} = {getattr(self, attr)}")
+        return ""
+
 
 settings = Settings()
 """Settings object."""
