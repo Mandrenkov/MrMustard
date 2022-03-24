@@ -26,15 +26,15 @@ class Settings:
         self.HOMODYNE_SQUEEZING = 10.0
 
     @property
-    def backend(self):
-        """The backend which is used.
+    def BACKEND(self):
+        """The backend in use.
 
         Can be either ``'tensorflow'`` or ``'torch'``.
         """
         return self._backend
 
     @backend.setter
-    def backend(self, backend_name: str):
+    def BACKEND(self, backend_name: str):
         if backend_name not in ["tensorflow", "torch"]:
             raise ValueError("Backend must be either 'tensorflow' or 'torch'")
         self._backend = backend_name
@@ -43,9 +43,10 @@ class Settings:
         # print all settings
         print("Settings:")
         for attr in dir(self):
-            if attr.startswith("_"):
-                continue
-            print(f"{attr} = {getattr(self, attr)}")
+            # if starts with a capital letter
+            if attr[0].isupper() and attr[1].isupper():
+                print(f"{attr} = {getattr(self, attr)}")
+        print(f"BACKEND = {self.backend}")
         return ""
 
 
