@@ -1139,6 +1139,8 @@ class MathInterface(ABC):
         Returns:
             Matrix: symplectic gradient tensor
         """
+        # NOTE we omit the first inverse S, as it cancels out with the S in the
+        # exponential in the formula for the geodesic (and we omit S there too).
         Jmat = self.J(S.shape[-1] // 2)
         Z = self.matmul(self.transpose(S), dS_euclidean)
         return 0.5 * (Z + self.matmul(self.matmul(Jmat, self.transpose(Z)), Jmat))
