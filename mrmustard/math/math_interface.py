@@ -1370,3 +1370,43 @@ def numba_sparse_matmul(matrix1: Tensor, matrix2: Tensor, m1_modes: List[int], m
 #         dm1, dm2 (array, array): arrays of the gradients of `matrix1 @ matrix2` with respect to `matrix1` and `matrix2`
 #     """
 #     ...
+
+# TODO: move to the walrus
+import numpy as np
+from numba import njit
+
+@njit
+def next_lst(lst, i, reset=False):
+    r"""Computes the next list of indices given the current list
+    and the current index.
+    """
+    if lst[i] == 0:
+        return next_lst(lst, i+1, reset=True)
+    else:
+        lst[i] -= 1
+        lst[i+1] += 1
+    if reset:
+        lst[0] = np.sum(lst[:i+1])
+        lst[1:i+1] = 0
+        i = 0
+    return lst, i
+
+@njit
+def index_generator(N, k):
+    r"""Numba implementation of a generator over arrays of N integers, such that sum(array) == k.
+
+    Args:
+        N (int): number of elements in the arrays
+        k (int): total sum of the elements
+    Returns:
+        array(int): all the arrays of N integers with sum(array) == k
+    """
+    lst = np.zeros(N, dtype=np.int64)
+    lst[0] = k
+    i = 0
+    yield lst
+    while lst[-1] < k:
+        lst, i = next_lst(lst, i)
+        yield lst
+
+            
